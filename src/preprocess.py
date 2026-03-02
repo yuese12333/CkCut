@@ -1,6 +1,7 @@
 import os
 import regex as re
 from tqdm import tqdm
+from pathlib import Path
 
 def clean_and_split_text(text: str) -> list:
     """
@@ -10,91 +11,82 @@ def clean_and_split_text(text: str) -> list:
     :param text: 原始文本行
     :return: 仅包含纯汉字短句的列表
     """
-    # \p{Han} 是 regex 库支持的 Unicode 属性，完美匹配所有中文字符
-    # + 表示匹配一个或多个连续的中文字符
     pattern = re.compile(r'\p{Han}+')
-    
-    # findall 会返回所有匹配的连续汉字片段，自动丢弃了非汉字字符
     fragments = pattern.findall(text)
-    
     return fragments
 
-def preprocess_corpus(input_filepath: str, output_filepath: str, min_length: int = 2):
+def preprocess_directory(input_dir: str, output_filepath: str, min_length: int = 2):
     """
-    流式处理大规模语料库。
-    逐行读取以节省内存，清洗后将合格的短句写入输出文件，每行一句。
+    遍历指定目录下的所有 .txt 文件，进行清洗并将结果合并写入到一个输出文件中。
     
-    :param input_filepath: 原始语料文件路径 (TXT格式)
-    :param output_filepath: 清洗后的输出文件路径
-    :param min_length: 保留的最短句子长度（默认为2，因为单字无法形成词汇组合）
+    :param input_dir: 存放原始语料的文件夹路径
+    :param output_filepath: 清洗合并后的单一输出文件路径
+    :param min_length: 保留的最短句子长度
     """
-    if not os.path.exists(input_filepath):
-        print(f"❌ 错误: 找不到输入文件 {input_filepath}")
+    input_path = Path(input_dir)
+    
+    # 检查输入目录是否存在
+    if not input_path.exists() or not input_path.is_dir():
+        print(f"❌ 错误: 找不到输入目录 {input_dir}")
         return
 
-    # 获取文件总字节数，用于 tqdm 进度条显示
-    total_size = os.path.getsize(input_filepath)
-    
-    # 确保输出目录存在
+    # 找出目录下所有的 .txt 文件
+    txt_files = list(input_path.glob("*.txt"))
+    if not txt_files:
+        print(f"⚠️ 警告: 在 {input_dir} 下没有找到任何 .txt 文件。")
+        return
+
+    # 确保输出文件所在的目录存在
     os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
 
-    print(f"🚀 开始预处理语料: {input_filepath}")
-    
-    # 计数器
+    print(f"🚀 开始预处理目录 '{input_dir}' 下的 {len(txt_files)} 个文件...")
+
     total_lines = 0
     valid_fragments = 0
 
-    # 打开文件，使用 utf-8 编码。遇到无法解析的字符直接忽略 (errors='ignore')
-    with open(input_filepath, 'r', encoding='utf-8', errors='ignore') as fin, \
-        open(output_filepath, 'w', encoding='utf-8') as fout:
+    # 打开统一的输出文件（追加模式或覆盖模式，这里用 'w' 覆盖模式）
+    with open(output_filepath, 'w', encoding='utf-8') as fout:
         
-        # 使用 tqdm 包装，以字节为单位显示进度
-        with tqdm(total=total_size, desc="处理进度", unit='B', unit_scale=True) as pbar:
-            for line in fin:
-                # 更新进度条 (按行所占的字节数)
-                pbar.update(len(line.encode('utf-8')))
-                total_lines += 1
-                
-                # 去除行首尾空白字符
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # 提取纯中文短句
-                fragments = clean_and_split_text(line)
-                
-                # 遍历提取出的片段，过滤掉太短的，然后写入新文件
-                for frag in fragments:
-                    if len(frag) >= min_length:
-                        fout.write(frag + '\n')
-                        valid_fragments += 1
+        # 遍历每一个找到的 txt 文件
+        for file_path in txt_files:
+            file_size = os.path.getsize(file_path)
+            print(f"\n📄 正在处理: {file_path.name}")
+            
+            # 读取当前文件
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as fin:
+                # 为当前文件创建一个进度条
+                with tqdm(total=file_size, desc=f"处理 {file_path.name}", unit='B', unit_scale=True) as pbar:
+                    for line in fin:
+                        # 更新进度条 (按行所占的字节数)
+                        pbar.update(len(line.encode('utf-8', errors='ignore')))
+                        total_lines += 1
+                        
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        # 提取纯中文短句
+                        fragments = clean_and_split_text(line)
+                        
+                        # 写入合并后的输出文件
+                        for frag in fragments:
+                            if len(frag) >= min_length:
+                                fout.write(frag + '\n')
+                                valid_fragments += 1
 
-    print(f"\n✅ 预处理完成！")
-    print(f"📊 统计信息: 读取了 {total_lines} 行原始文本，生成了 {valid_fragments} 句纯中文有效短句。")
-    print(f"📁 输出文件已保存至: {output_filepath}")
+    print(f"\n✅ 所有文件预处理完成！")
+    print(f"📊 统计信息: 共读取 {total_lines} 行原始文本，生成了 {valid_fragments} 句纯中文有效短句。")
+    print(f"📁 合并后的清洗数据已保存至: {output_filepath}")
 
-# 简单的测试入口
 if __name__ == "__main__":
-    # 假设你在项目根目录下运行此脚本
-    # 我们先在 data/raw_corpus/ 下建一个 dummy_test.txt 做个小测试
+    # 动态获取项目根目录，确保无论在哪个路径下运行脚本，都能找对 data 文件夹
+    # __file__ 指向当前脚本 src/preprocess.py
+    # os.path.dirname 获取 src 目录，再套一层获取 AutoSeg 根目录
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
-    # 1. 模拟生成一个测试文件
-    test_raw_dir = "../data/raw_corpus"
-    test_out_dir = "../data/processed"
-    os.makedirs(test_raw_dir, exist_ok=True)
+    # 构建绝对路径
+    input_directory = os.path.join(BASE_DIR, "data", "raw_corpus")
+    output_file = os.path.join(BASE_DIR, "data", "processed", "merged_cleaned.txt")
     
-    test_file = os.path.join(test_raw_dir, "dummy_test.txt")
-    out_file = os.path.join(test_out_dir, "cleaned_corpus.txt")
-    
-    with open(test_file, 'w', encoding='utf-8') as f:
-        f.write("大家好！这是一个从零开始的 NLP 项目。AutoSeg v1.0 棒极了，不是吗？\n")
-        f.write("We need to handle English characters 还有各种数字123和标点符号...\n")
-        f.write("一！\n") # 这句太短会被过滤掉
-        
-    # 2. 运行预处理
-    preprocess_corpus(test_file, out_file)
-    
-    # 3. 打印结果看看效果
-    print("\n🧐 预览处理结果:")
-    with open(out_file, 'r', encoding='utf-8') as f:
-        print(f.read())
+    # 执行批量预处理
+    preprocess_directory(input_directory, output_file)

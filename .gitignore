@@ -10,8 +10,5 @@ __pycache__/
 data/raw_corpus/*
 data/processed/*
 
-# 允许提交说明文件或非常小的测试样例
-!data/raw_corpus/dummy_test.txt
-
 # 忽略 VS Code 本地配置
 .vscode/
