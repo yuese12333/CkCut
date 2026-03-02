@@ -1,6 +1,7 @@
 import os
 import math
-import gc  # 引入 Python 的垃圾回收模块
+import gc
+import sys
 from collections import defaultdict
 from tqdm import tqdm
 
@@ -9,7 +10,7 @@ class WordDiscoverer:
         self.max_word_len = max_word_len
         self.min_freq = min_freq
         self.ngram_counts = defaultdict(int)
-        self.total_chars = 0 
+        self.total_chars = 0
 
     def count_ngrams(self, corpus_path: str):
         if not os.path.exists(corpus_path):
@@ -21,7 +22,7 @@ class WordDiscoverer:
 
         line_count = 0
         # 核心超参数：每处理 30 万行执行一次内存清理
-        prune_interval = 300000  
+        prune_interval = 300000
 
         with open(corpus_path, 'r', encoding='utf-8') as f:
             with tqdm(total=file_size, desc="统计词频", unit='B', unit_scale=True) as pbar:
@@ -70,7 +71,7 @@ class WordDiscoverer:
         
         # 彻底切断旧字典的引用，并呼叫系统立刻回收这块内存
         del self.ngram_counts
-        gc.collect() 
+        gc.collect()
         
         self.ngram_counts = new_counts
 
@@ -156,7 +157,7 @@ class WordDiscoverer:
             if min(l_entropy, r_entropy) >= min_entropy:
                 self.final_words[word] = self.ngram_counts[word]
 
-        print(f"\n🎉 历经九九八十一难！最终生成词汇量: {len(self.final_words)} 个。")
+        print(f"\n🎉 最终生成词汇量: {len(self.final_words)} 个。")
         
         # ================= 🚀 收尾阶段内存清理 =================
         # 词典已生成，释放这三个巨大的邻居和分数缓存字典
@@ -165,10 +166,30 @@ class WordDiscoverer:
         del self.pmi_scores
         gc.collect()
 
-    def export_dict(self, output_path: str):
+    def export_dict(self):
+        """
+        修改后的导出方法：交互式询问用户输入词典名称（不加后缀），自动添加.txt后缀并导出
+        """
+        # 交互式获取用户输入的词典名称
+        while True:
+            dict_name = input("\n请输入要导出的词典名称（无需加.txt后缀）：").strip()
+            
+            
+            # 校验输入是否为空
+            if not dict_name:
+                print("❌ 错误：词典名称不能为空，请重新输入！")
+                continue
+            break
+        
+        # 自动添加 .txt 后缀
+        output_path = f"{dict_name}.txt"
+        
+        # 排序并导出
         sorted_words = sorted(self.final_words.items(), key=lambda x: x[1], reverse=True)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
         with open(output_path, 'w', encoding='utf-8') as f:
             for word, freq in sorted_words:
                 f.write(f"{word} {freq}\n")
-        print(f"📁 专属词典已成功导出至: {output_path}")
+                
+        print(f"📁 专属词典已成功导出至: {os.path.abspath(output_path)}")

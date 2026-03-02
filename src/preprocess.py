@@ -47,7 +47,7 @@ def preprocess_directory(input_dir: str, output_filepath: str, min_length: int =
     # 打开统一的输出文件
     with open(output_filepath, 'w', encoding='utf-8') as fout:
         
-        # 【修改核心】：在外层使用单一总进度条，以“文件”为单位
+        # 在外层使用单一总进度条，以“文件”为单位
         # 将 txt_files 传入 tqdm，自动推断总量
         with tqdm(txt_files, desc="批量预处理总进度", unit="文件") as pbar:
             for file_path in pbar:

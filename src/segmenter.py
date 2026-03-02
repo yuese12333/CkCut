@@ -1,23 +1,83 @@
 import os
 import math
+import json
+from typing import Optional
 
+# ================= HMM 核心解码组件 =================
+# HMM 的四大状态：B(开头), M(中间), E(结尾), S(单字)
+STATES = ['B', 'M', 'E', 'S']
+MIN_FLOAT = -3.14e100
+
+def viterbi(obs, states, start_p, trans_p, emit_p):
+    """
+    Viterbi 算法求解最大概率状态序列
+    :param obs: 观察序列 (连续的单字字符串)
+    """
+    V = [{}] # 动态规划表格
+    path = {} # 记录路径
+    
+    # 应对 OOV 字的平滑惩罚机制
+    def get_emit_prob(state, char):
+        if state in emit_p and char in emit_p[state]:
+            return emit_p[state][char]
+        # 如果字完全没见过，分配均等极小概率，逼迫算法依赖转移概率
+        return math.log(1.0 / len(states))
+
+    # 初始化 (t=0)
+    for y in states:
+        V[0][y] = start_p.get(y, MIN_FLOAT) + get_emit_prob(y, obs[0])
+        path[y] = [y]
+
+    # 递推 (t > 0)
+    for t in range(1, len(obs)):
+        V.append({})
+        newpath = {}
+        for y in states:
+            em_p = get_emit_prob(y, obs[t])
+            candidates = []
+            for y0 in states:
+                if y in trans_p.get(y0, {}):
+                    prob = V[t-1][y0] + trans_p[y0][y] + em_p
+                    candidates.append((prob, y0))
+                else:
+                    candidates.append((MIN_FLOAT, y0))
+                    
+            prob, state = max(candidates, key=lambda x: x[0])
+            V[t][y] = prob
+            # 安全获取路径
+            newpath[y] = path.get(state, []) + [y]
+            
+        path = newpath
+
+    # 终止 (最后一个字的状态只能是 E 结尾 或 S 单字)
+    prob, state = max([(V[len(obs) - 1][y], y) for y in ('E', 'S')])
+    return prob, path[state]
+
+
+# ================= 工业级分词引擎 =================
 class AutoSegmenter:
-    """基于词典和动态规划的中文分词器，支持最大概率路径切分。"""
+    """基于 DAG(词典查表) 与 HMM(隐马尔可夫模型) 双引擎的中文分词器"""
 
-    def __init__(self, dict_path: str):
-        """
-        初始化分词器。
-
-        :param dict_path: 词典文件路径，每行格式：词 频次（空格分隔）
-        """
-        self.FREQ = {}          # 词频字典，同时作为前缀树（所有前缀均被加入，非词频次为0）
-        self.total_freq = 0     # 总词频，用于计算词语的概率
+    def __init__(self, dict_path: str, hmm_model_path: Optional[str] = None):
+        self.FREQ = {}
+        self.total_freq = 0
         self.dict_path = dict_path
+        
+        # HMM 参数容器
+        self.start_p = {}
+        self.trans_p = {}
+        self.emit_p = {}
+        self.hmm_enabled = False
+        
         self.initialize()
+        
+        # 如果传入了 hmm 模型路径，则加载
+        if hmm_model_path and os.path.exists(hmm_model_path):
+            self.load_hmm(hmm_model_path)
 
     def initialize(self):
-        """加载词典，构建包含所有前缀的频次映射，以加速DAG构建。"""
-        print(f"⏳ 正在加载词典并构建前缀树: {self.dict_path}")
+        """加载词典，构建包含所有前缀的频次映射"""
+        print(f"⏳ 正在加载主词典并构建前缀树: {self.dict_path}")
         if not os.path.exists(self.dict_path):
             raise FileNotFoundError(f"找不到词典文件: {self.dict_path}")
 
@@ -33,44 +93,45 @@ class AutoSegmenter:
                     self.FREQ[word] = freq
                     self.total_freq += freq
 
-                    # 将词的所有前缀也加入词典（频次为0），便于在构建DAG时快速判断前缀存在性
                     for i in range(1, len(word)):
                         prefix = word[:i]
                         if prefix not in self.FREQ:
                             self.FREQ[prefix] = 0
 
-        print(f"✅ 词典加载完成！共计 {len(self.FREQ)} 个节点 (含前缀)，总有效词频: {self.total_freq}")
+        print(f"✅ 主词典加载完成！共计 {len(self.FREQ)} 个节点 (含前缀)。")
+
+    def load_hmm(self, hmm_path):
+        """动态加载训练好的 HMM JSON 模型"""
+        print(f"⏳ 正在加载 HMM 未登录词识别模型: {hmm_path}")
+        with open(hmm_path, 'r', encoding='utf-8') as f:
+            model = json.load(f)
+            self.start_p = model['START_P']
+            self.trans_p = model['TRANS_P']
+            self.emit_p = model['EMIT_P']
+            self.hmm_enabled = True
+        print(f"✅ HMM 模型挂载成功，随时准备对付生词！")
 
     def get_dag(self, sentence: str) -> dict:
-        """
-        为句子构建有向无环图（DAG），表示所有可能的词位。
-
-        :param sentence: 待切分句子
-        :return: DAG字典，键为起始位置，值为该位置可能词条的结束位置列表
-        """
+        """为句子构建有向无环图（DAG）"""
         dag = {}
         N = len(sentence)
         for start in range(N):
             candidates = []
             end = start
             frag = sentence[start]
-            # 逐步扩展，检查前缀是否存在
             while end < N and frag in self.FREQ:
-                if self.FREQ[frag] > 0:          # 只有频次>0才是真正的词
+                if self.FREQ[frag] > 0:
                     candidates.append(end)
                 end += 1
                 if end < N:
                     frag = sentence[start:end+1]
-            # 若没有词典词，则视为单字词
             if not candidates:
                 candidates.append(start)
             dag[start] = candidates
         return dag
 
     def calc_dp(self, sentence: str, dag: dict) -> dict:
-        """
-        动态规划 (Dynamic Programming) 求解最大概率路径
-        """
+        """动态规划 (Dynamic Programming) 求解最大概率路径"""
         N = len(sentence)
         route = {}
         route[N] = (0.0, 0)
@@ -81,33 +142,21 @@ class AutoSegmenter:
             candidates = []
             for end in dag[idx]:
                 word = sentence[idx:end+1]
-                
-                # 【修复核心】安全获取词频
                 freq = self.FREQ.get(word, 0)
-                # 极其严格地防止 0 或负数：
-                # 如果是纯前缀 (freq==0) 或完全没见过的生字 (get不到返回0)
-                # 统一赋予极小频次 1，提供平滑概率，防止 log(0) 崩溃
                 if freq <= 0:
                     freq = 1
-                
                 log_prob = math.log(freq) - log_total + route[end+1][0]
                 candidates.append((log_prob, end))
-            
-            # 记录当前位置最优的 (最大概率值, 截断位置)
             route[idx] = max(candidates, key=lambda item: item[0])
             
         return route
 
     def cut(self, sentence: str) -> list:
-        """
-        执行分词，返回词序列。
-
-        :param sentence: 输入句子
-        :return: 分词结果列表
-        """
+        """执行混合分词"""
         if not sentence:
             return []
 
+        # 1. DAG + DP 基础切分
         dag = self.get_dag(sentence)
         route = self.calc_dp(sentence, dag)
 
@@ -118,8 +167,53 @@ class AutoSegmenter:
             next_pos = route[pos][1] + 1
             words.append(sentence[pos:next_pos])
             pos = next_pos
-        return words
 
+        # 2. HMM 未登录词识别 (新词兜底聚合)
+        final_words = []
+        single_char_buf = ""
+        
+        # 内部封装局部 hmm_cut
+        def local_hmm_cut(text):
+            if not self.hmm_enabled:
+                return list(text)
+                
+            prob, pos_list = viterbi(text, STATES, self.start_p, self.trans_p, self.emit_p)
+            begin, nexti = 0, 0
+            res = []
+            for i, char in enumerate(text):
+                pos = pos_list[i]
+                if pos == 'B':
+                    begin = i
+                elif pos == 'E':
+                    res.append(text[begin:i+1])
+                    nexti = i + 1
+                elif pos == 'S':
+                    res.append(char)
+                    nexti = i + 1
+            if nexti < len(text):
+                res.append(text[nexti:])
+            return res
+
+        # 扫描并融合
+        for word in words:
+            if len(word) == 1:
+                single_char_buf += word
+            else:
+                if single_char_buf:
+                    if len(single_char_buf) == 1:
+                        final_words.append(single_char_buf)
+                    else:
+                        final_words.extend(local_hmm_cut(single_char_buf))
+                    single_char_buf = ""
+                final_words.append(word)
+                
+        if single_char_buf:
+            if len(single_char_buf) == 1:
+                final_words.append(single_char_buf)
+            else:
+                final_words.extend(local_hmm_cut(single_char_buf))
+                
+        return final_words
 
 # ================= 测试入口 =================
 if __name__ == "__main__":

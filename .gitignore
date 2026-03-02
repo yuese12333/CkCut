@@ -9,6 +9,8 @@ __pycache__/
 # 忽略原始语料和中间处理数据
 data/raw_corpus/*
 data/processed/*
+data/HMM_train/*
+data/evaluate/*
 
 # 忽略 VS Code 本地配置
 .vscode/
