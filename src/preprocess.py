@@ -30,8 +30,8 @@ def preprocess_directory(input_dir: str, output_filepath: str, min_length: int =
         print(f"❌ 错误: 找不到输入目录 {input_dir}")
         return
 
-    # 找出目录下所有的 .txt 文件
-    txt_files = list(input_path.glob("*.txt"))
+    # 找出目录下所有的 .txt 文件 (rglob 支持递归查找子文件夹)
+    txt_files = list(input_path.rglob("*.txt"))
     if not txt_files:
         print(f"⚠️ 警告: 在 {input_dir} 下没有找到任何 .txt 文件。")
         return
@@ -44,21 +44,19 @@ def preprocess_directory(input_dir: str, output_filepath: str, min_length: int =
     total_lines = 0
     valid_fragments = 0
 
-    # 打开统一的输出文件（追加模式或覆盖模式，这里用 'w' 覆盖模式）
+    # 打开统一的输出文件
     with open(output_filepath, 'w', encoding='utf-8') as fout:
         
-        # 遍历每一个找到的 txt 文件
-        for file_path in txt_files:
-            file_size = os.path.getsize(file_path)
-            print(f"\n📄 正在处理: {file_path.name}")
-            
-            # 读取当前文件
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as fin:
-                # 为当前文件创建一个进度条
-                with tqdm(total=file_size, desc=f"处理 {file_path.name}", unit='B', unit_scale=True) as pbar:
+        # 【修改核心】：在外层使用单一总进度条，以“文件”为单位
+        # 将 txt_files 传入 tqdm，自动推断总量
+        with tqdm(txt_files, desc="批量预处理总进度", unit="文件") as pbar:
+            for file_path in pbar:
+                # 在进度条尾部动态显示当前正在处理的文件名，避免 print 刷屏
+                pbar.set_postfix(file=file_path.name)
+                
+                # 读取当前文件
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as fin:
                     for line in fin:
-                        # 更新进度条 (按行所占的字节数)
-                        pbar.update(len(line.encode('utf-8', errors='ignore')))
                         total_lines += 1
                         
                         line = line.strip()
@@ -80,8 +78,6 @@ def preprocess_directory(input_dir: str, output_filepath: str, min_length: int =
 
 if __name__ == "__main__":
     # 动态获取项目根目录，确保无论在哪个路径下运行脚本，都能找对 data 文件夹
-    # __file__ 指向当前脚本 src/preprocess.py
-    # os.path.dirname 获取 src 目录，再套一层获取 AutoSeg 根目录
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
     # 构建绝对路径
