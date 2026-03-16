@@ -3,7 +3,96 @@ import math
 import gc
 import sys
 from collections import defaultdict
+from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
+
+# ================= 并行计算辅助全局变量 =================
+_PMI_COUNTS = None
+_PMI_TOTAL_CHARS = None
+_ENT_LEFT = None
+_ENT_RIGHT = None
+_ENT_COUNTS = None
+
+
+def _init_pmi_worker(counts, total_chars):
+    """在子进程中初始化共享只读数据。"""
+    global _PMI_COUNTS, _PMI_TOTAL_CHARS
+    _PMI_COUNTS = counts
+    _PMI_TOTAL_CHARS = total_chars
+
+
+def _pmi_worker(args):
+    """
+    单个词的 PMI 计算任务。
+    返回 (word, min_pmi_value_or_None)
+    """
+    word, count, min_pmi = args
+    if len(word) < 2:
+        return word, None
+
+    total_chars = _PMI_TOTAL_CHARS
+    counts = _PMI_COUNTS
+
+    p_word = count / total_chars
+    min_pmi_value = float("inf")
+
+    for i in range(1, len(word)):
+        left_part = word[:i]
+        right_part = word[i:]
+
+        left_count = counts.get(left_part, 0)
+        right_count = counts.get(right_part, 0)
+
+        if left_count == 0 or right_count == 0:
+            continue
+
+        p_left = left_count / total_chars
+        p_right = right_count / total_chars
+        pmi = math.log2(p_word / (p_left * p_right))
+        if pmi < min_pmi_value:
+            min_pmi_value = pmi
+
+    if min_pmi_value == float("inf") or min_pmi_value < min_pmi:
+        return word, None
+    return word, min_pmi_value
+
+
+def _init_entropy_worker(left_neighbors, right_neighbors, counts):
+    """在子进程中初始化熵计算需要的只读数据。"""
+    global _ENT_LEFT, _ENT_RIGHT, _ENT_COUNTS
+    _ENT_LEFT = left_neighbors
+    _ENT_RIGHT = right_neighbors
+    _ENT_COUNTS = counts
+
+
+def _calculate_entropy(neighbors_dict):
+    total_count = sum(neighbors_dict.values())
+    if total_count == 0:
+        return 0.0
+    entropy = 0.0
+    for count in neighbors_dict.values():
+        p = count / total_count
+        entropy -= p * math.log2(p)
+    return entropy
+
+
+def _entropy_worker(args):
+    """
+    单个候选词的左右熵计算任务。
+    返回 (word, keep_flag)
+    """
+    word, min_entropy = args
+    left_dict = _ENT_LEFT.get(word, {})
+    right_dict = _ENT_RIGHT.get(word, {})
+
+    if not left_dict and not right_dict:
+        return word, False
+
+    l_entropy = _calculate_entropy(left_dict)
+    r_entropy = _calculate_entropy(right_dict)
+    keep = min(l_entropy, r_entropy) >= min_entropy
+    return word, keep
+
 
 class WordDiscoverer:
     def __init__(self, max_word_len: int = 4, min_freq: int = 5):
@@ -78,43 +167,40 @@ class WordDiscoverer:
     def compute_pmi(self, min_pmi: float = 5.0):
         print(f"\n🧠 开始计算候选词的内部凝固度 (PMI)...")
         self.pmi_scores = {}
-        
-        for word, count in tqdm(self.ngram_counts.items(), desc="计算 PMI"):
-            if len(word) < 2:
-                continue
-                
-            p_word = count / self.total_chars
-            min_pmi_value = float('inf')
-            
-            for i in range(1, len(word)):
-                left_part = word[:i]
-                right_part = word[i:]
-                
-                left_count = self.ngram_counts.get(left_part, 0)
-                right_count = self.ngram_counts.get(right_part, 0)
-                
-                if left_count == 0 or right_count == 0:
-                    continue
-                    
-                p_left = left_count / self.total_chars
-                p_right = right_count / self.total_chars
-                pmi = math.log2(p_word / (p_left * p_right))
-                min_pmi_value = min(min_pmi_value, pmi)
-                
-            if min_pmi_value >= min_pmi:
-                self.pmi_scores[word] = min_pmi_value
-                
+
+        items = list(self.ngram_counts.items())
+        if not items:
+            print("⚠️ 没有可计算 PMI 的候选词。")
+            return
+
+        # 控制并行度，最多使用 8 个进程，避免过度争抢 IO
+        proc_num = min(max(cpu_count() - 1, 1), 8)
+
+        with Pool(
+            processes=proc_num,
+            initializer=_init_pmi_worker,
+            initargs=(self.ngram_counts, self.total_chars),
+        ) as pool:
+            tasks = ((word, count, min_pmi) for word, count in items)
+            for word, value in tqdm(
+                pool.imap_unordered(_pmi_worker, tasks),
+                total=len(items),
+                desc="计算 PMI(并行)",
+            ):
+                if value is not None:
+                    self.pmi_scores[word] = value
+
         print(f"\n🔪 基于 PMI >= {min_pmi} 过滤后，剩余 {len(self.pmi_scores)} 个高凝固度候选词。")
         # 步骤结束后，进行一次例行垃圾回收
         gc.collect()
 
     def compute_entropy(self, corpus_path: str, min_entropy: float = 1.0):
         print(f"\n🌳 开始收集候选词的左右邻居并计算边界熵...")
-        
+
         left_neighbors = defaultdict(lambda: defaultdict(int))
         right_neighbors = defaultdict(lambda: defaultdict(int))
         valid_candidates = set(self.pmi_scores.keys())
-        
+
         file_size = os.path.getsize(corpus_path)
         with open(corpus_path, 'r', encoding='utf-8') as f:
             with tqdm(total=file_size, desc="收集邻居", unit='B', unit_scale=True) as pbar:
@@ -122,7 +208,7 @@ class WordDiscoverer:
                     pbar.update(len(line.encode('utf-8')))
                     line = line.strip()
                     length = len(line)
-                    
+
                     for i in range(length):
                         for j in range(1, self.max_word_len + 1):
                             if i + j <= length:
@@ -134,31 +220,40 @@ class WordDiscoverer:
                                         right_neighbors[word][line[i+j]] += 1
 
         self.final_words = {}
-        
-        def calculate_entropy(neighbors_dict):
-            total_count = sum(neighbors_dict.values())
-            if total_count == 0:
-                return 0.0
-            entropy = 0.0
-            for count in neighbors_dict.values():
-                p = count / total_count
-                entropy -= p * math.log2(p)
-            return entropy
 
-        print("🧮 正在计算熵值并生成最终词典...")
-        for word in valid_candidates:
+        # 先处理所有单字（它们不依赖熵）以避免在并行阶段额外判断
+        for word in list(valid_candidates):
             if len(word) == 1:
                 self.final_words[word] = self.ngram_counts[word]
-                continue
-                
-            l_entropy = calculate_entropy(left_neighbors[word])
-            r_entropy = calculate_entropy(right_neighbors[word])
-            
-            if min(l_entropy, r_entropy) >= min_entropy:
-                self.final_words[word] = self.ngram_counts[word]
+                valid_candidates.discard(word)
+
+        if not valid_candidates:
+            print(f"\n🎉 最终生成词汇量: {len(self.final_words)} 个（仅单字）。")
+            del left_neighbors
+            del right_neighbors
+            del self.pmi_scores
+            gc.collect()
+            return
+
+        print("🧮 正在并行计算熵值并生成最终词典...")
+
+        proc_num = min(max(cpu_count() - 1, 1), 8)
+        with Pool(
+            processes=proc_num,
+            initializer=_init_entropy_worker,
+            initargs=(left_neighbors, right_neighbors, self.ngram_counts),
+        ) as pool:
+            tasks = ((word, min_entropy) for word in valid_candidates)
+            for word, keep in tqdm(
+                pool.imap_unordered(_entropy_worker, tasks),
+                total=len(valid_candidates),
+                desc="计算熵(并行)",
+            ):
+                if keep:
+                    self.final_words[word] = self.ngram_counts[word]
 
         print(f"\n🎉 最终生成词汇量: {len(self.final_words)} 个。")
-        
+
         # ================= 🚀 收尾阶段内存清理 =================
         # 词典已生成，释放这三个巨大的邻居和分数缓存字典
         del left_neighbors

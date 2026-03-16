@@ -1,4 +1,5 @@
 import os
+import sys
 import argparse
 from src.preprocess import preprocess_directory
 from src.word_discovery import WordDiscoverer
@@ -7,6 +8,12 @@ from src.evaluate import Evaluator
 from src.hmm_trainer import HMMTrainer
 
 def main():
+    # Windows 下子进程/终端多为 GBK，强制 stdout/stderr 使用 UTF-8，避免 print(emoji/中文) 报错
+    if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+        sys.stdout = open(sys.stdout.fileno(), mode="w", encoding="utf-8", errors="replace")
+    if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
+        sys.stderr = open(sys.stderr.fileno(), mode="w", encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(
         description="🚀 AutoSeg: 混合驱动 (DAG+HMM) 中文分词引擎",
         formatter_class=argparse.RawTextHelpFormatter
@@ -22,7 +29,8 @@ B: 无监督新词发现与主词典生成 (Train Main Dict)
 C: 有监督 HMM 模型批量训练 (Train HMM Model)
 D: 模型量化评测 P/R/F1 (Evaluate test set)
 E: 交互式分词终端 (Segment) - 注: 死循环，将自动置于最后执行
-all: 一键顺次执行 A -> B -> C -> D -> E """
+all: 一键顺次执行 A -> B -> C -> D -> E
+ABCD: 仅执行 A -> B -> C -> D (不执行交互 E，供可视化训练界面使用) """
     )
     
     # 算法超参数配置
@@ -45,7 +53,7 @@ all: 一键顺次执行 A -> B -> C -> D -> E """
     OUTPUT_DICT = os.path.join(BASE_DIR, "data", "output_dict", "my_dict_wiki.txt")
     
     # HMM 模型训练 (C)
-    HMM_TRAIN_DIR = os.path.join(BASE_DIR, "data", "HHM_train")
+    HMM_TRAIN_DIR = os.path.join(BASE_DIR, "data", "HMM_train")
     HMM_MODEL = os.path.join(BASE_DIR, "data", "output_dict", "hmm_model.json")
     
     # 评测集 (D)
@@ -53,12 +61,14 @@ all: 一键顺次执行 A -> B -> C -> D -> E """
 
     # ================= 2. 步骤指令解析 =================
     step_cmd = args.step.upper()
+    # ABCD 表示仅 A→D，不跑交互 E（供 GUI 一键顺序使用）
+    abcd_only = (step_cmd == 'ABCD')
     
     run_a = 'A' in step_cmd or step_cmd == 'ALL'
     run_b = 'B' in step_cmd or step_cmd == 'ALL'
     run_c = 'C' in step_cmd or step_cmd == 'ALL'
     run_d = 'D' in step_cmd or step_cmd == 'ALL'
-    run_e = 'E' in step_cmd or step_cmd == 'ALL'
+    run_e = ('E' in step_cmd or step_cmd == 'ALL') and not abcd_only
 
     if not any([run_a, run_b, run_c, run_d, run_e]):
         print("❌ 错误: 无效的步骤组合。请包含 A, B, C, D, E 或输入 all。")
