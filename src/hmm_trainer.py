@@ -146,8 +146,8 @@ class HMMTrainer:
 if __name__ == "__main__":
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
-    # 指向你的训练目录 HHM_train
-    training_dir = os.path.join(BASE_DIR, "data", "HHM_train")
+    # 指向你的训练目录 HMM_train
+    training_dir = os.path.join(BASE_DIR, "data", "HMM_train")
     output_model = os.path.join(BASE_DIR, "data", "output_dict", "hmm_model.json")
     
     trainer = HMMTrainer()

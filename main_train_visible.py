@@ -37,7 +37,7 @@ else:
 RAW_CORPUS_DIR = os.path.join(_work_dir, "data", "raw_corpus")
 PROCESSED_FILE = os.path.join(_work_dir, "data", "processed", "merged_cleaned.txt")
 OUTPUT_DICT = os.path.join(_work_dir, "data", "output_dict", "my_dict_wiki.txt")
-HMM_TRAIN_DIR = os.path.join(_work_dir, "data", "HHM_train")
+HMM_TRAIN_DIR = os.path.join(_work_dir, "data", "HMM_train")
 HMM_MODEL = os.path.join(_work_dir, "data", "output_dict", "hmm_model.json")
 TEST_DIR = os.path.join(_work_dir, "data", "evaluate")
 MAIN_PY = os.path.join(_work_dir, "main.py")

@@ -1,7 +1,54 @@
 import os
 import math
 import json
-from typing import Optional
+from typing import Optional, List, Tuple
+
+# ================= 预处理：英文/数字/标点 与 纯中文 分离 =================
+# 标点（全角+半角）：作为硬截断，单独成 token
+# 特别包含中文全角引号：‘ ’
+PUNCT_CHARS = set(
+    "，。！？、；：\"\"''（）【】《》…—‘’\t\n "
+    + ",.!?;:\"'()[]"
+)
+
+
+def _is_en_num_char(c: str) -> bool:
+    """是否为英文、数字或 C++ 风格中的 +"""
+    return c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+"
+
+
+def _tokenize_input(s: str) -> List[Tuple[str, str]]:
+    """
+    将输入切分为 (类型, 内容) 列表。
+    类型: "en_num" | "punct" | "chinese"
+    - en_num: 连续英文/数字/加号（如 PyTorch, C++, 2026）整块保留
+    - punct: 标点符号，每个单独成段
+    - chinese: 仅含中文等非英文数字非标点的片段，送核心分词
+    """
+    if not s:
+        return []
+    segments = []
+    i = 0
+    n = len(s)
+    while i < n:
+        if s[i] in PUNCT_CHARS:
+            segments.append(("punct", s[i]))
+            i += 1
+        elif _is_en_num_char(s[i]):
+            j = i
+            while j < n and _is_en_num_char(s[j]):
+                j += 1
+            segments.append(("en_num", s[i:j]))
+            i = j
+        else:
+            j = i
+            while j < n and s[j] not in PUNCT_CHARS and not _is_en_num_char(s[j]):
+                j += 1
+            if j > i:
+                segments.append(("chinese", s[i:j]))
+            i = j
+    return segments
+
 
 # ================= HMM 核心解码组件 =================
 # HMM 的四大状态：B(开头), M(中间), E(结尾), S(单字)
@@ -151,8 +198,11 @@ class AutoSegmenter:
             
         return route
 
-    def cut(self, sentence: str) -> list:
-        """执行混合分词"""
+    def _cut_core(self, sentence: str) -> list:
+        """
+        核心分词逻辑：仅处理「纯中文」片段（无标点、无英文数字）。
+        由 cut() 在预处理按标点/英文数字切分后对每段调用。
+        """
         if not sentence:
             return []
 
@@ -171,30 +221,27 @@ class AutoSegmenter:
         # 2. HMM 未登录词识别 (新词兜底聚合)
         final_words = []
         single_char_buf = ""
-        
-        # 内部封装局部 hmm_cut
+
         def local_hmm_cut(text):
             if not self.hmm_enabled:
                 return list(text)
-                
             prob, pos_list = viterbi(text, STATES, self.start_p, self.trans_p, self.emit_p)
             begin, nexti = 0, 0
             res = []
             for i, char in enumerate(text):
                 pos = pos_list[i]
-                if pos == 'B':
+                if pos == "B":
                     begin = i
-                elif pos == 'E':
-                    res.append(text[begin:i+1])
+                elif pos == "E":
+                    res.append(text[begin : i + 1])
                     nexti = i + 1
-                elif pos == 'S':
+                elif pos == "S":
                     res.append(char)
                     nexti = i + 1
             if nexti < len(text):
                 res.append(text[nexti:])
             return res
 
-        # 扫描并融合
         for word in words:
             if len(word) == 1:
                 single_char_buf += word
@@ -206,14 +253,33 @@ class AutoSegmenter:
                         final_words.extend(local_hmm_cut(single_char_buf))
                     single_char_buf = ""
                 final_words.append(word)
-                
+
         if single_char_buf:
             if len(single_char_buf) == 1:
                 final_words.append(single_char_buf)
             else:
                 final_words.extend(local_hmm_cut(single_char_buf))
-                
+
         return final_words
+
+    def cut(self, sentence: str) -> list:
+        """
+        执行混合分词。先按标点与英文/数字做硬截断与保护，再对纯中文段做 DAG+HMM 分词。
+        - 英文、数字、C++ 等整块不参与分词，原样输出；
+        - 标点作为天然边界，单独成 token。
+        """
+        if not sentence:
+            return []
+        segments = _tokenize_input(sentence)
+        result = []
+        for typ, content in segments:
+            if typ == "chinese":
+                result.extend(self._cut_core(content))
+            elif typ == "en_num":
+                result.append(content)
+            else:  # punct
+                result.append(content)
+        return result
 
 # ================= 测试入口 =================
 if __name__ == "__main__":
@@ -225,10 +291,13 @@ if __name__ == "__main__":
     test_sentences = [
         "在这个从零开始的自然语言处理项目中，我们取得了巨大成功。",
         "这是一个测试，用来检验我们的分词效果到底好不好。",
-        "今天天气真不错，我们一起去爬山吧。"
+        "今天天气真不错，我们一起去爬山吧。",
+        "OpenClaw和PyTorch、Flutter都是技术名词。",
+        "C++或F（混合）的写法要正确切分。",
+        "（HMM）的、子'、了'、或'。",
     ]
 
-    print("\n🔪 开始初步分词测试:")
+    print("\n🔪 开始初步分词测试 (含英文/数字/标点):")
     print("=" * 50)
     for sent in test_sentences:
         words = segmenter.cut(sent)
