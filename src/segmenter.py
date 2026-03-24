@@ -1,7 +1,7 @@
 import os
 import math
 import json
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union, Sequence
 
 # ================= 预处理：英文/数字/标点 与 纯中文 分离 =================
 # 标点（全角+半角）：作为硬截断，单独成 token
@@ -105,47 +105,56 @@ def viterbi(obs, states, start_p, trans_p, emit_p):
 class AutoSegmenter:
     """基于 DAG(词典查表) 与 HMM(隐马尔可夫模型) 双引擎的中文分词器"""
 
-    def __init__(self, dict_path: str, hmm_model_path: Optional[str] = None):
+    def __init__(self, dict_path: Union[str, Sequence[str]], hmm_model_path: Optional[str] = None):
         self.FREQ = {}
         self.total_freq = 0
-        self.dict_path = dict_path
-        
+        if isinstance(dict_path, str):
+            self.dict_paths: List[str] = [dict_path]
+        else:
+            self.dict_paths = [os.path.abspath(p) for p in dict_path]
+        self.dict_path = self.dict_paths[0]
+
         # HMM 参数容器
         self.start_p = {}
         self.trans_p = {}
         self.emit_p = {}
         self.hmm_enabled = False
-        
+
         self.initialize()
-        
+
         # 如果传入了 hmm 模型路径，则加载
         if hmm_model_path and os.path.exists(hmm_model_path):
             self.load_hmm(hmm_model_path)
 
     def initialize(self):
-        """加载词典，构建包含所有前缀的频次映射"""
-        print(f"⏳ 正在加载主词典并构建前缀树: {self.dict_path}")
-        if not os.path.exists(self.dict_path):
-            raise FileNotFoundError(f"找不到词典文件: {self.dict_path}")
+        """加载词典（可多个文件顺序合并），构建包含所有前缀的频次映射。同词后出现的文件覆盖词频。"""
+        self.FREQ = {}
+        self.total_freq = 0
+        for p in self.dict_paths:
+            print(f"⏳ 正在加载词典并合并前缀树: {p}")
+            if not os.path.exists(p):
+                raise FileNotFoundError(f"找不到词典文件: {p}")
+            with open(p, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split(" ")
+                    if len(parts) >= 2:
+                        word = parts[0]
+                        freq = int(parts[1])
+                        old = self.FREQ.get(word, 0)
+                        if old > 0:
+                            self.total_freq -= old
+                        self.FREQ[word] = freq
+                        self.total_freq += freq
 
-        with open(self.dict_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split(' ')
-                if len(parts) >= 2:
-                    word = parts[0]
-                    freq = int(parts[1])
-                    self.FREQ[word] = freq
-                    self.total_freq += freq
+                        for i in range(1, len(word)):
+                            prefix = word[:i]
+                            if prefix not in self.FREQ:
+                                self.FREQ[prefix] = 0
 
-                    for i in range(1, len(word)):
-                        prefix = word[:i]
-                        if prefix not in self.FREQ:
-                            self.FREQ[prefix] = 0
-
-        print(f"✅ 主词典加载完成！共计 {len(self.FREQ)} 个节点 (含前缀)。")
+        print(f"✅ 词典加载完成！共 {len(self.dict_paths)} 个文件，{len(self.FREQ)} 个节点 (含前缀)。")
 
     def load_hmm(self, hmm_path):
         """动态加载训练好的 HMM JSON 模型"""

@@ -95,6 +95,38 @@ python main.py --step D --withouthmm
 python main.py --step B --max_len 4 --min_freq 5 --min_pmi 4.0 --min_entropy 1.0
 ```
 
+## 神经网络 + CRF 分词流程 (main_nn_crf.py)
+
+`main_nn_crf.py` 是独立于 `main.py` 的全新流程，使用 **BiLSTM-CRF** 做 BMES 序列标注分词，直接复用 `data/HMM_train` 与 `data/evaluate` 语料目录。
+
+```bash
+# 1) 训练（全量语料）
+python main_nn_crf.py --mode train --epochs 10 --batch_size 16 --embedding_dim 128 --hidden_dim 256 --device cpu
+
+# 2) 评测（输出 Precision / Recall / F1）
+python main_nn_crf.py --mode eval --embedding_dim 128 --hidden_dim 256 --device cpu
+
+# 3) 交互分词
+python main_nn_crf.py --mode infer --embedding_dim 128 --hidden_dim 256 --device cpu
+```
+
+常用参数说明：
+
+- `--mode`：`train` / `eval` / `infer`
+- `--train_dir`：训练语料目录（默认 `data/HMM_train`）
+- `--test_dir`：评测语料目录（默认 `data/evaluate`）
+- `--output_dir`：模型与词表输出目录（默认 `data/output_nn_crf`）
+- `--model_path`：模型权重路径（默认 `data/output_nn_crf/bilstm_crf.pt`）
+- `--vocab_path`：字表路径（默认 `data/output_nn_crf/char_vocab.json`）
+- `--max_samples`：训练样本上限，`0` 表示全量（适合快速冒烟调试）
+
+快速冒烟示例（先小样本验证流程可跑通）：
+
+```bash
+python main_nn_crf.py --mode train --epochs 1 --batch_size 16 --embedding_dim 64 --hidden_dim 128 --max_samples 200 --device cpu
+python main_nn_crf.py --mode eval --embedding_dim 64 --hidden_dim 128 --device cpu
+```
+
 ## 可视化分词器 (main_visible.py)
 
 ```bash

@@ -1,0 +1,45 @@
+{
+  "config": {
+    "train_dir": "e:/CkCut/data/HMM_train/pku_training.txt",
+    "output_dir": "e:/CkCut/data/output_nn_crf_single/pku_training",
+    "embedding_dim": 128,
+    "hidden_dim": 256,
+    "lr": 0.0012,
+    "weight_decay": 1e-05,
+    "epochs": 5,
+    "batch_size": 64,
+    "min_char_freq": 1,
+    "max_samples": 0,
+    "seed": 42,
+    "device": "cuda",
+    "num_workers": 8,
+    "pin_memory": true,
+    "use_amp": true,
+    "prefetch_factor": 4,
+    "clip_grad_norm": 5.0,
+    "bucket_multiplier": 100,
+    "log_interval": 20
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "avg_sentence_loss": 82.4549940182728
+    },
+    {
+      "epoch": 2,
+      "avg_sentence_loss": 28.28949658788363
+    },
+    {
+      "epoch": 3,
+      "avg_sentence_loss": 18.593944183386448
+    },
+    {
+      "epoch": 4,
+      "avg_sentence_loss": 13.526990275874999
+    },
+    {
+      "epoch": 5,
+      "avg_sentence_loss": 10.34575337333595
+    }
+  ]
+}

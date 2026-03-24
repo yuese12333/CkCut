@@ -9,3 +9,6 @@ regex>=2023.6.3
 
 # GUI
 PyQt5>=5.15.0
+
+# Neural segmentation
+torch
