@@ -1,12 +1,12 @@
 {
   "config": {
-    "train_dir": "e:/CkCut/data/HMM_train/as_train.txt",
-    "output_dir": "e:/CkCut/data/output_nn_crf_single/as_train",
-    "embedding_dim": 128,
-    "hidden_dim": 256,
+    "train_dir": "E:\\CkCut\\data\\HMM_train\\as_train.txt",
+    "output_dir": "E:\\CkCut\\data/output_nn_crf_single\\as_train",
+    "embedding_dim": 256,
+    "hidden_dim": 512,
     "lr": 0.0012,
     "weight_decay": 1e-05,
-    "epochs": 5,
+    "epochs": 20,
     "batch_size": 64,
     "min_char_freq": 1,
     "max_samples": 0,
@@ -23,23 +23,83 @@
   "history": [
     {
       "epoch": 1,
-      "avg_sentence_loss": 1.4331995629396703
+      "avg_sentence_loss": 1.3475051187914615
     },
     {
       "epoch": 2,
-      "avg_sentence_loss": 0.6394178133009264
+      "avg_sentence_loss": 0.5368910841305674
     },
     {
       "epoch": 3,
-      "avg_sentence_loss": 0.5299985233390759
+      "avg_sentence_loss": 0.4441654213418946
     },
     {
       "epoch": 4,
-      "avg_sentence_loss": 0.4696264808314716
+      "avg_sentence_loss": 0.394847811511607
     },
     {
       "epoch": 5,
-      "avg_sentence_loss": 0.42932472656968407
+      "avg_sentence_loss": 0.3641251528562379
+    },
+    {
+      "epoch": 6,
+      "avg_sentence_loss": 0.34316219810625065
+    },
+    {
+      "epoch": 7,
+      "avg_sentence_loss": 0.3284387565964051
+    },
+    {
+      "epoch": 8,
+      "avg_sentence_loss": 0.3196591226768076
+    },
+    {
+      "epoch": 9,
+      "avg_sentence_loss": 0.3102491130515196
+    },
+    {
+      "epoch": 10,
+      "avg_sentence_loss": 0.3032321321704985
+    },
+    {
+      "epoch": 11,
+      "avg_sentence_loss": 0.29961031539642224
+    },
+    {
+      "epoch": 12,
+      "avg_sentence_loss": 0.2935406852387159
+    },
+    {
+      "epoch": 13,
+      "avg_sentence_loss": 0.29131813461504097
+    },
+    {
+      "epoch": 14,
+      "avg_sentence_loss": 0.2897044607462564
+    },
+    {
+      "epoch": 15,
+      "avg_sentence_loss": 0.2889548853787676
+    },
+    {
+      "epoch": 16,
+      "avg_sentence_loss": 0.2884573826959141
+    },
+    {
+      "epoch": 17,
+      "avg_sentence_loss": 0.2911430040495431
+    },
+    {
+      "epoch": 18,
+      "avg_sentence_loss": 0.2922617795649135
+    },
+    {
+      "epoch": 19,
+      "avg_sentence_loss": 0.2133116195328365
+    },
+    {
+      "epoch": 20,
+      "avg_sentence_loss": 0.1874661908361983
     }
   ]
 }

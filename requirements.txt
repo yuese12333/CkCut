@@ -1,4 +1,4 @@
-# 数值计算与矩阵运算
+﻿# 数值计算与矩阵运算
 numpy>=1.24.0
 
 # 终端进度条
@@ -8,7 +8,7 @@ tqdm>=4.65.0
 regex>=2023.6.3
 
 # GUI
-PyQt5>=5.15.0
+flet>=0.82.2
 
-# Neural segmentation
-torch
+# 神经网络
+torch>=2.4.0

@@ -2,7 +2,6 @@ import json
 import random
 import sys
 from dataclasses import dataclass, asdict
-from collections import deque
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -163,7 +162,6 @@ def train_model(cfg: TrainConfig) -> Dict[str, float]:
         model.train()
         running = 0.0
         sent_count = 0
-        recent_losses = deque(maxlen=100)
         
         current_lr = optimizer.param_groups[0]['lr']
         pbar = tqdm(loader, desc=f"Epoch {epoch}/{cfg.epochs} [LR: {current_lr:.2e}]", unit="batch")
@@ -192,11 +190,10 @@ def train_model(cfg: TrainConfig) -> Dict[str, float]:
             batch_size_actual = sentences.size(0)
             running += loss.item() * batch_size_actual
             sent_count += batch_size_actual
-            recent_losses.append(loss.item())
             
             if step % max(cfg.log_interval, 1) == 0:
-                recent_avg = sum(recent_losses) / len(recent_losses)
-                pbar.set_postfix(avg_loss=f"{recent_avg:.4f}")
+                epoch_avg = running / max(sent_count, 1)
+                pbar.set_postfix(avg_loss=f"{epoch_avg:.4f}")
 
         epoch_loss = running / max(sent_count, 1)
         history.append({"epoch": epoch, "avg_sentence_loss": epoch_loss})
