@@ -3,7 +3,7 @@ from typing import Dict, List
 import torch
 
 from .constants import ID_TO_TAG
-from .data_pipeline import encode_chars, load_vocab
+from .vocab_io import encode_chars, load_vocab
 from .model import BiLSTMCRF
 
 

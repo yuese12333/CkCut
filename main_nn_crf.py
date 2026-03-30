@@ -4,7 +4,7 @@ import os
 
 def build_parser():
     p = argparse.ArgumentParser(description="BiLSTM-CRF 中文分词全新流程")
-    p.add_argument("--mode", required=True, choices=["train", "eval", "infer"])
+    p.add_argument("--mode", required=True, choices=["train", "eval", "infer", "export_onnx"])
 
     p.add_argument("--train_dir", default="data/HMM_train")
     p.add_argument("--test_dir", default="data/evaluate")
@@ -29,6 +29,12 @@ def build_parser():
     p.add_argument("--clip_grad_norm", type=float, default=5.0, help="梯度裁剪阈值")
     p.add_argument("--omp_threads", type=int, default=1, help="CPU/OpenMP 线程数")
     p.add_argument("--train_separately", action="store_true", help="训练时对 train_dir 下每个 .txt 分别训练并分别输出权重")
+    p.add_argument(
+        "--out_onnx",
+        default="",
+        help="mode=export_onnx 时输出 .onnx 路径；默认同目录下与 .pt 同名（如 bilstm_crf.onnx），并写入 *_meta.json",
+    )
+    p.add_argument("--onnx_opset", type=int, default=17, help="export_onnx 使用的 ONNX opset")
     return p
 
 
@@ -53,6 +59,27 @@ def main():
     output_dir = _abs(root, args.output_dir)
     model_path = _abs(root, args.model_path)
     vocab_path = _abs(root, args.vocab_path)
+
+    if args.mode == "export_onnx":
+        from src_nn_crf.export_onnx import export_bilstm_crf_onnx
+
+        out_onnx = args.out_onnx.strip()
+        if not out_onnx:
+            root_pt, _ = os.path.splitext(model_path)
+            out_onnx = root_pt + ".onnx"
+        else:
+            out_onnx = _abs(root, out_onnx)
+        onnx_p, meta_p = export_bilstm_crf_onnx(
+            model_path,
+            vocab_path,
+            out_onnx,
+            embedding_dim=args.embedding_dim,
+            hidden_dim=args.hidden_dim,
+            opset=args.onnx_opset,
+        )
+        print("ONNX:", onnx_p)
+        print("META:", meta_p)
+        return
 
     if args.mode == "train":
         if args.train_separately:

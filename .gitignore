@@ -19,3 +19,10 @@ data/evaluate/*
 # 同目录 char_vocab.json / train_history.json 建议保留入库
 data/output_nn_crf_merged/*.pt
 data/output_nn_crf_single/**/*.pt
+
+build/ 
+dist/
+
+CkCutFlet.spec
+CkCutFlet.spec.exe
+_internal/

@@ -1,11 +1,11 @@
-import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
 import torch
 from torch.utils.data import Dataset
 
-from .constants import PAD_CHAR, TAG_TO_ID, UNK_CHAR, split_han_blocks
+from .constants import PAD_CHAR, TAG_TO_ID, split_han_blocks
+from .vocab_io import encode_chars, load_vocab, save_vocab
 
 
 def words_to_bmes(words: Sequence[str]) -> Tuple[List[str], List[int]]:
@@ -65,11 +65,6 @@ def build_char_vocab(samples: Iterable[Tuple[List[str], List[int]]], min_freq: i
     return vocab
 
 
-def encode_chars(chars: Sequence[str], char_to_id: Dict[str, int]) -> List[int]:
-    unk = char_to_id[UNK_CHAR]
-    return [char_to_id.get(ch, unk) for ch in chars]
-
-
 class SegmentedDataset(Dataset):
     def __init__(self, encoded_samples: List[Tuple[List[int], List[int]]]):
         self.samples = encoded_samples
@@ -100,17 +95,6 @@ def collate_batch(batch: List[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[torch
     masks = (padded_inputs != PAD_ID)
     
     return padded_inputs, padded_targets, masks
-
-
-def save_vocab(path: str, char_to_id: Dict[str, int]) -> None:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(char_to_id, f, ensure_ascii=False, indent=2)
-
-
-def load_vocab(path: str) -> Dict[str, int]:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def line_to_char_ids(raw_line: str, char_to_id: Dict[str, int]) -> List[List[int]]:

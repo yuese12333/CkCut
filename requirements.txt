@@ -1,4 +1,4 @@
-﻿# 数值计算与矩阵运算
+# 数值计算与矩阵运算
 numpy>=1.24.0
 
 # 终端进度条
@@ -12,3 +12,7 @@ flet>=0.82.2
 
 # 神经网络
 torch>=2.4.0
+
+# 导出/部署 ONNX 推理（打包时可不依赖 torch，仅需 onnxruntime + numpy）
+onnx>=1.16.0
+onnxruntime>=1.18.0

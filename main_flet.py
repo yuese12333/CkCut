@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
@@ -7,20 +8,22 @@ from typing import Any, Dict, List, Tuple
 import flet as ft
 
 from src_machine.segmenter import AutoSegmenter
-from src_nn_crf.infer import CRFSegmenter
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DICT_PRIMARY = os.path.join(BASE_DIR, "data", "output_dict", "my_dict_primary.txt")
 DICT_WIKI = os.path.join(BASE_DIR, "data", "output_dict", "my_dict_wiki.txt")
 HMM_MODEL_PATH = os.path.join(BASE_DIR, "data", "output_dict", "hmm_model.json")
 
 DL_MODELS: Dict[str, str] = {
-    "综合模型 (Merged)": os.path.join(BASE_DIR, "data", "output_nn_crf_merged", "bilstm_crf.pt"),
-    "单模型 as_train": os.path.join(BASE_DIR, "data", "output_nn_crf_single", "as_train", "bilstm_crf.pt"),
-    "单模型 cityu_train": os.path.join(BASE_DIR, "data", "output_nn_crf_single", "cityu_train", "bilstm_crf.pt"),
-    "单模型 msr_training": os.path.join(BASE_DIR, "data", "output_nn_crf_single", "msr_training", "bilstm_crf.pt"),
-    "单模型 pku_training": os.path.join(BASE_DIR, "data", "output_nn_crf_single", "pku_training", "bilstm_crf.pt"),
+    "综合模型 (Merged)": os.path.join(BASE_DIR, "data", "output_nn_crf_merged", "bilstm_crf.onnx"),
+    "单模型 as_train": os.path.join(BASE_DIR, "data", "output_nn_crf_single", "as_train", "bilstm_crf.onnx"),
+    "单模型 cityu_train": os.path.join(BASE_DIR, "data", "output_nn_crf_single", "cityu_train", "bilstm_crf.onnx"),
+    "单模型 msr_training": os.path.join(BASE_DIR, "data", "output_nn_crf_single", "msr_training", "bilstm_crf.onnx"),
+    "单模型 pku_training": os.path.join(BASE_DIR, "data", "output_nn_crf_single", "pku_training", "bilstm_crf.onnx"),
 }
 
 LARGE_CHAR_LIMIT = 10000
@@ -35,8 +38,10 @@ class TaskItem:
 
 
 def guess_crf_dims(model_path: str) -> Tuple[int, int]:
+    """供 PyTorch CRFSegmenter 回退使用；路径可为 .pt 或与 .onnx 同目录。"""
     default_dims = (128, 256)
-    history_path = os.path.join(os.path.dirname(model_path), "train_history.json")
+    model_dir = os.path.dirname(model_path)
+    history_path = os.path.join(model_dir, "train_history.json")
     if not os.path.exists(history_path):
         return default_dims
     try:
@@ -61,15 +66,35 @@ def get_segmenter(model_type: str, config: Any):
             model.hmm_enabled = False
     else:
         model_path = str(config)
-        vocab_path = os.path.join(os.path.dirname(model_path), "char_vocab.json")
-        emb_dim, hidden_dim = guess_crf_dims(model_path)
-        model = CRFSegmenter(
-            model_path=model_path,
-            vocab_path=vocab_path,
-            embedding_dim=emb_dim,
-            hidden_dim=hidden_dim,
-            device="auto",
-        )
+        model_dir = os.path.dirname(model_path)
+        vocab_path = os.path.join(model_dir, "char_vocab.json")
+        root_model, ext = os.path.splitext(model_path)
+        onnx_path = root_model + ".onnx"
+        meta_path = root_model + "_meta.json"
+        use_onnx = ext.lower() == ".onnx" or (os.path.isfile(onnx_path) and os.path.isfile(meta_path))
+        if use_onnx:
+            from src_nn_crf.infer_onnx import OnnxCRFSegmenter
+
+            op = onnx_path if os.path.isfile(onnx_path) else model_path
+            if not os.path.isfile(op) or not os.path.isfile(meta_path):
+                raise FileNotFoundError(
+                    f"需要 ONNX 模型与同目录 meta：{op} 与 {meta_path}（若尚未导出，请运行 main_nn_crf.py --mode export_onnx）"
+                )
+            model = OnnxCRFSegmenter(onnx_path=op, meta_path=meta_path, vocab_path=vocab_path)
+        else:
+            # 回退到 PyTorch 版时才动态加载，避免 PyInstaller 静态分析把 torch 全量打进来。
+            import importlib
+
+            CRFSegmenter = importlib.import_module("src_nn_crf.infer").CRFSegmenter
+            pt_path = model_path if ext.lower() == ".pt" else root_model + ".pt"
+            emb_dim, hidden_dim = guess_crf_dims(pt_path)
+            model = CRFSegmenter(
+                model_path=pt_path,
+                vocab_path=vocab_path,
+                embedding_dim=emb_dim,
+                hidden_dim=hidden_dim,
+                device="auto",
+            )
 
     loaded_models[cache_key] = model
     return model
@@ -113,7 +138,7 @@ def main(page: ft.Page):
     mech_hmm_switch = ft.Switch(label="启用 HMM 未登录词识别", value=True)
 
     dl_model_dropdown = ft.Dropdown(
-        label="选择深度学习 PT 模型",
+        label="选择深度学习 ONNX 模型",
         options=[ft.dropdown.Option(key=v, text=k) for k, v in DL_MODELS.items()],
         value=list(DL_MODELS.values())[0],
         width=350,
